@@ -1,0 +1,50 @@
+{
+    "hooks": {
+        "SessionStart": [
+            {
+                "matcher": "startup|resume|clear",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "python3",
+                        "args": [
+                            "${CLAUDE_PROJECT_DIR}/tools/sync.py",
+                            "session-start"
+                        ],
+                        "timeout": 120,
+                        "statusMessage": "Bringing your base up to date"
+                    },
+                    {
+                        "type": "command",
+                        "command": "python3",
+                        "args": [
+                            "${CLAUDE_PROJECT_DIR}/tools/update.py",
+                            "--check",
+                            "--max-age",
+                            "86400"
+                        ],
+                        "timeout": 60,
+                        "statusMessage": "Checking whether Minder Harness has a newer version"
+                    }
+                ]
+            }
+        ],
+        "SessionEnd": [
+            {
+                "matcher": "clear|logout|prompt_input_exit|other",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "python3",
+                        "args": [
+                            "${CLAUDE_PROJECT_DIR}/tools/sync.py",
+                            "session-end"
+                        ],
+                        "timeout": 60,
+                        "statusMessage": "Saving anything this session has not sent out"
+                    }
+                ]
+            }
+        ]
+    }
+}

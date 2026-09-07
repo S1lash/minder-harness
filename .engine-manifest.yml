@@ -1,0 +1,149 @@
+# What the engine owns, what the person owns — the single source of truth.
+#
+# A base is one repository holding two things at once: the engine (the shared
+# standard, identical in every fork) and the person's own life. Every tool that
+# needs to know which is which reads THIS file: the updater, the health check,
+# and the agent when it is deciding where a fact belongs. The judgement that
+# follows from the split — never write a person's fact into an engine path, never
+# copy engine content into a person path — lives in `doctrine/engine-ownership.md`.
+#
+# Categories:
+#   engine    — the engine. An update REPLACES these wholesale from the engine
+#               remote. Nothing personal is ever written here: it would
+#               survive exactly until the next update.
+#   template  — seed files. They ship under their live names, the person's
+#               agent fills them as they work, and an update NEVER touches
+#               them again — though one MISSING from a base is created, so a
+#               seed added after somebody's clone still reaches them.
+#               A file that carries both a spec the engine maintains and rows the
+#               person accumulates belongs here, not in engine — and its
+#               engine-maintained half is then FROZEN at their clone date, which
+#               is the price of never overwriting their rows. Keep that half to
+#               what will not need to change, and put anything that will into
+#               an engine file the template links to.
+#   exclude   — person space, listed for readability. The default for any path
+#               named in no section at all is already "the person's".
+#   migrations— changes replacement cannot express: a path in the PERSON's space
+#               that has to move. Read after the checkout so a declaration lands
+#               in the run it ships in; idempotent, so every base converges
+#               whatever version it starts from.
+#   retired   — paths the engine no longer owns. Every update DELETES them from
+#               the base, so a removal actually reaches the people running it.
+#               Without this a removal never propagates: the updater copies
+#               what the engine HAS and leaves anything it lacks alone, so a
+#               deleted command stays discoverable on every base forever,
+#               offering a contract nothing honours. Guard: a retired path may
+#               not fall under `exclude:` — retiring something the person
+#               produced is not a sweep's decision to make.
+#
+# Path semantics:
+#   - trailing `/` means the whole directory, recursively
+#   - no trailing `/` means one file
+#   - `*/` means the subdirectories of a directory, not the files beside them
+#   - `**` is not supported — list explicit subpaths instead
+#
+# Two deliberate differences from the engine this is modelled on, both because
+# this engine has no private parent to extract from:
+#   - Template files ship under their LIVE names, with no `.template` suffix to
+#     strip: the engine's copies are already pristine, because the engine is authored
+#     as the public thing rather than extracted out of somebody's live instance.
+#   - `version:` below is one of THREE mirrors of the engine's version, with `VERSION`
+#     and `.claude-plugin/plugin.json`. `VERSION` is what an update reads and
+#     verifies; all three move in the same edit, and the release gate refuses a
+#     release where any of them disagrees.
+
+version: 1.0.0
+
+# Where the engine itself lives. A base reaches it through a remote, and that remote is git config —
+# it does not survive a clone. A second device, or a phone that has only ever seen a fresh clone,
+# therefore has no way to reconnect unless the address is repo CONTENT. It is also what tells an
+# installer whether an existing `origin` belongs to the engine or to the person: matching on the
+# NAME alone strips the origin of anyone whose own repository happens to carry the same name.
+engine_remote: https://github.com/S1lash/minder-harness
+
+
+engine:
+  # The canon — loaded hot in every session
+  - rules/
+
+  # On-demand authoring meta
+  - doctrine/
+
+  # The engine's own executables and the session wiring
+  - tools/sync.py
+  - tools/update.py
+  - tools/check_engine.py
+  - tools/check_portability.py
+  - tools/mcp-wrapper.js
+  - tools/lib/
+  - tools/tests/
+  - tools/_engine.md
+  - .claude/commands/
+  - .claude/settings.json
+
+  # Installers. `.gitattributes` is engine because it forces LF on shell and
+  # python: a Windows checkout with CRLF breaks bash and python outright.
+  - install.sh
+  - install.ps1
+  - .gitattributes
+  - .gitignore
+
+  # The entry points every runtime reads. `CLAUDE.md` is Claude Code's and
+  # `AGENTS.md` is everyone else's; they are runtime twins, reconciled in the
+  # same edit, and shipping only one leaves a person on the other runtime with
+  # no contract at all.
+  - CLAUDE.md
+  - AGENTS.md
+
+  # The engine describing itself
+  - README.md
+  - ARCHITECTURE.md
+  - CHANGELOG.md
+  - DECISIONS.md
+  - KNOWN-LIMITS.md
+  - LICENSE
+  - VERSION
+  - .engine-manifest.yml
+  - .claude-plugin/
+
+  # Bundled plugin — the engine maintains it, the person does not edit it
+  - plugins/frontend-crafter/
+
+template:
+  # The one personal file inside the engine half, personal by design. An update
+  # improving its guidance must never overwrite what the person put in it.
+  - profile.md
+
+  # Indexes: the engine ships the shape and the discipline, the person's agent
+  # accumulates the rows. Both halves live in one file on purpose — an agent
+  # reading it needs the rule and the contents together — which is exactly why
+  # it seeds instead of syncing.
+  - knowledge/_index.md
+  - knowledge/decisions.md
+  - activities/_index.md
+  - projects/_index.md
+  - tools/_index.md
+
+exclude:
+  # Everything the person and their agent write
+  - knowledge/
+  - activities/
+  - projects/
+  - pointers/
+  - corrections.jsonl
+
+  # This machine's own settings — carrying them to another device is how two
+  # surfaces start behaving differently (rules/device-sync.md)
+  - .claude/settings.local.json
+
+  # The person's own capabilities. `.claude/commands/` beside it is the engine's and
+  # is replaced wholesale on update, so anything authored FOR this person lives
+  # here instead and is never touched (doctrine/skill-creation.md).
+  - .claude/skills/
+
+retired:
+  # Nothing, because this is the first release: no base predates it, so none can be carrying a
+  # path the engine no longer ships. A path removed from inside an engine DIRECTORY is declared
+  # here: `git checkout <ref> -- <dir>` writes what the ref holds and never removes what it
+  # lacks, so without a line here the removed file stays on every base beside its replacement.
+  # An engine path listed on its own is NOT covered by that gate — see KNOWN-LIMITS.md.

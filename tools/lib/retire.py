@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Remove the paths the manifest says the engine no longer owns.
+
+An update copies what the engine HAS. It cannot express what the engine no longer
+has: the updater walks the `engine:` list, and a path that is gone is simply
+never walked — so it stays on the base forever. A removed command goes on being
+discoverable, describing a contract nothing honours; a removed script goes on
+being importable.
+
+`retired:` is the missing half. The author lists a path once and every update
+converges every base. This runs on each update rather than as a one-off, on
+purpose: a one-off reaches only the bases that have not run it yet, while this
+reaches a base at any version, including one that has been dark for months.
+
+Two properties make it safe to run unattended:
+
+- **It never leaves engine space.** A retired path falling under `exclude:` — the
+  manifest's own enumeration of the person's space — is refused, and the refusal
+  is an error rather than a skip, because a path in the wrong section is an
+  authoring mistake that has to be seen.
+- **It only deletes what the manifest names.** No globs, no inference from what
+  the engine lacks. "Absent upstream" is equally the shape of a botched path list.
+"""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+from . import manifest as manifest_lib
+
+
+class RetirementRefused(Exception):
+    """A retired path reaches into the person's space. Nothing was deleted."""
+
+    def __init__(self, trespassing: list[str]):
+        super().__init__("retired paths fall under exclude: %s" % ", ".join(trespassing))
+        self.trespassing = trespassing
+
+
+def trespassing_paths(retired: list[str], excluded: list[str]) -> list[str]:
+    """Retired entries that would reach the person's space. Empty is the good case."""
+    return [p for p in retired if any(manifest_lib.covered_by(e, p) for e in excluded)]
+
+
+def run(root: Path, dry_run: bool = False, entries: list[str] | None = None,
+        protected: list[str] | None = None) -> list[str]:
+    """Delete every listed path that is present. Returns what was (or would be) removed.
+
+    `entries` lets a caller supply the section from a manifest other than the one on disk — what a
+    dry-run needs, since the deletions it must preview are declared by the incoming release.
+    """
+    retired = manifest_lib.read_section("retired", root) if entries is None else entries
+    if not retired:
+        return []
+    # `protected` is supplied by the caller because by the time an update reaches this pass it
+    # has already replaced the manifest — so reading `exclude:` from disk would compare the
+    # incoming list against itself, and a release could unprotect the person's space simply by
+    # shipping a shorter one. The updater passes the union of before and after: protection may
+    # widen in an update, never narrow.
+    if protected is None:
+        protected = manifest_lib.read_section("exclude", root)
+    trespassing = trespassing_paths(retired, protected)
+    if trespassing:
+        raise RetirementRefused(trespassing)
+
+    # `safe_entry` has already refused anything that reads as leaving the base. This is the half
+    # text cannot check: a symlink inside the base pointing out of it resolves outside, and every
+    # deletion below is irreversible.
+    escaping = [p for p in retired if not manifest_lib.contains(root, p)]
+    if escaping:
+        raise RetirementRefused(escaping)
+
+    removed = []
+    for relpath in retired:
+        target = root / relpath
+        if not target.exists() and not target.is_symlink():
+            continue
+        removed.append(relpath)
+        if dry_run:
+            continue
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        _prune_empty_parents(root, target.parent)
+    return removed
+
+
+def _prune_empty_parents(root: Path, directory: Path) -> None:
+    """Remove directories a deletion emptied, never climbing past the base.
+
+    An emptied directory left behind still reads as a place things live — but the stop condition
+    has to be containment, not inequality: `directory != root` never becomes true for a path that
+    started outside the base, so one escaping entry walked UP the filesystem removing every
+    directory it emptied.
+    """
+    base = root.resolve()
+    while directory.resolve() != base and directory.is_dir() and not any(directory.iterdir()):
+        if base not in directory.resolve().parents:
+            return
+        directory.rmdir()
+        directory = directory.parent
